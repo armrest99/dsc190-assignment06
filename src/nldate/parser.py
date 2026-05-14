@@ -63,6 +63,9 @@ NUMBER_WORDS: dict[str, int] = {
     "twenty": 20,
     "a": 1,
     "an": 1,
+    "the": 1,
+    "couple": 2,
+    "few": 3,
 }
 
 UNIT_DAYS: dict[str, int] = {
@@ -70,6 +73,8 @@ UNIT_DAYS: dict[str, int] = {
     "days": 1,
     "week": 7,
     "weeks": 7,
+    "fortnight": 14,
+    "fortnights": 14,
 }
 
 UNIT_MONTHS: dict[str, int] = {
@@ -138,11 +143,14 @@ def _parse_quantity(s: str) -> tuple[int, int, int]:
     return total_days, total_months, total_years
 
 
-def _parse_absolute_date(s: str) -> Optional[date]:
+def _parse_absolute_date(s: str, today: Optional[date] = None) -> Optional[date]:
     s = s.strip()
+    s = re.sub(r"\bon\s+", "", s, flags=re.IGNORECASE)
     s = s.replace(",", "")
     s = s.replace(".", "")
     s = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", s)
+
+    year = today.year if today is not None else date.today().year
 
     m = re.match(r"([a-zA-Z]+)\s+(\d+)\s+(\d{4})$", s)
     if m:
@@ -164,6 +172,18 @@ def _parse_absolute_date(s: str) -> Optional[date]:
     if m:
         month, day, year_val = int(m.group(1)), int(m.group(2)), int(m.group(3))
         return date(year_val, month, day)
+
+    m = re.match(r"([a-zA-Z]+)\s+(\d{1,2})$", s)
+    if m:
+        month_name, day_str = m.groups()
+        if month_name.lower() in MONTH_NAMES:
+            return date(year, MONTH_NAMES[month_name.lower()], int(day_str))
+
+    m = re.match(r"(\d{1,2})\s+([a-zA-Z]+)$", s)
+    if m:
+        day_str, month_name = m.groups()
+        if month_name.lower() in MONTH_NAMES:
+            return date(year, MONTH_NAMES[month_name.lower()], int(day_str))
 
     return None
 
@@ -223,7 +243,7 @@ def _parse_date_reference(s: str, today: date) -> date:
         elif modifier == "this":
             return today
 
-    result = _parse_absolute_date(s)
+    result = _parse_absolute_date(s, today)
     if result is not None:
         return result
 
@@ -239,6 +259,8 @@ def parse(s: str, today: Optional[date] = None) -> date:
     if not s:
         msg = "Empty string"
         raise ValueError(msg)
+
+    s = re.sub(r"^on\s+", "", s, flags=re.IGNORECASE)
 
     m = re.match(r"in\s+(.+)$", s, re.IGNORECASE)
     if m:
@@ -264,5 +286,11 @@ def parse(s: str, today: Optional[date] = None) -> date:
             days, months, years = -days, -months, -years
         base = _parse_date_reference(reference_str, today)
         return _apply_offset(base, years=years, months=months, days=days)
+
+    m = re.match(r"(.+?)\s+ago$", s, re.IGNORECASE)
+    if m:
+        quantity_str = m.group(1).strip()
+        days, months, years = _parse_quantity(quantity_str)
+        return _apply_offset(today, years=-years, months=-months, days=-days)
 
     return _parse_date_reference(s, today)
